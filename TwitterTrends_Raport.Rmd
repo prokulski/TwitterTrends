@@ -10,7 +10,7 @@ output:
     toc_float: yes
 ---
 ```{r setup, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
-setwd("C:/Users/Lemur/SkyDrive/dane/RStudio_projects/TwitterTrends_Raport")
+setwd("~/RProjects/TwitterTrends/")
 
 library(tidyverse)
 library(lubridate)
