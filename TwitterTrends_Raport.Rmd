@@ -1,0 +1,194 @@
+---
+title: "Ostatnie 12 godzin w aktualnych trendach dla Polski"
+author: "Lukasz Prokulski"
+date: "14 czerwca 2017"
+output: 
+  html_document: 
+    self_contained: no
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+```{r setup, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+setwd("C:/Users/Lemur/SkyDrive/dane/RStudio_projects/TwitterTrends_Raport")
+
+library(tidyverse)
+library(lubridate)
+library(tidytext)
+library(wordcloud)
+library(stringr)
+
+pl_stop_words <- read_lines("polish_stopwords.txt")
+# pl_stop_words_bez_pol <- read_lines("polish_stopwords_bezpl.txt")
+# pl_stop_words <- c(pl_stop_words, pl_stop_words_bez_pol)
+
+theme_set(theme_minimal())
+```
+```{r load_saved_data, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets <- readRDS("tweets.Rds")
+```
+```{r filter_data, echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+# potrzebne kolumny
+tweets_an <- tweets %>%
+   select(screen_name, user_id, created_at, text, trend,
+          retweet_count, favorite_count, status_id,
+          source, lang, place_id, place_type, place_name, country) %>%
+   distinct() %>%
+   mutate(created_at = with_tz(created_at)) %>%
+   mutate(created_at = make_datetime(year(created_at),
+   											 month(created_at),
+   											 day(created_at),
+                                     hour(created_at),
+   											 minute(created_at), 0))
+
+
+# wyfiltrowanie zbednych twittów
+tweets_an <- tweets_an %>%
+   # boty i spamerzy
+   filter(!source %in% c("Poland Trends")) %>%
+   # tylko ostatnie 12 godzin
+   filter(created_at >= Sys.time() - hours(12))
+```
+
+
+**Update: `r max(tweets_an$created_at)`**
+
+
+# Trendy
+
+```{r trend_list, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets %>%
+	group_by(trend) %>%
+	mutate(min_d = min(created_at), max_d = max(created_at)) %>%
+	ungroup() %>%
+   select(trend, query, min_d, max_d) %>%
+   distinct() %>%
+   mutate(link = ifelse(substr(trend, 1, 1) == "#",
+      paste0("https://twitter.com/hashtag/",
+      		 str_replace_all(trend, "#", ""), "?f=tweets"),
+      paste0("https://twitter.com/search?f=tweets&q=", query))) %>%
+   mutate(link = paste0("[najnowsze](", link ,")")) %>%
+   select(trend, link, min_d, max_d) %>%
+   knitr::kable()
+```
+
+# Aktywność na trendach
+
+```{r activity, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets_an %>%
+   count(created_at, trend) %>%
+   ungroup() %>%
+   ggplot() +
+   geom_point(aes(created_at, n, color=trend), show.legend = FALSE, alpha = 0.3) +
+#   geom_smooth(aes(created_at, n, color=trend), show.legend = FALSE, se = FALSE) +
+   expand_limits(y = 0) +
+   facet_wrap(~trend, ncol = 4, scales = "free_y")
+
+tweets_an %>%
+   count(created_at, trend) %>%
+   ungroup() %>%
+   ggplot() +
+   geom_smooth(aes(created_at, n, color=trend), show.legend = FALSE, se = FALSE) +
+   expand_limits(y = 0) +
+   facet_wrap(~trend, ncol = 4, scales = "free_y")
+```
+
+# Najpopularniejsze twitty per trend (RTs)
+
+```{r top_twitts_rt, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets_an %>%
+   mutate(trend = str_replace_all(trend, "#", "")) %>%
+   group_by(trend) %>%
+   filter(retweet_count == max(retweet_count)) %>%
+   arrange(desc(retweet_count)) %>%
+   ungroup() %>%
+   select(trend, text, screen_name, retweet_count, favorite_count, status_id) %>%
+   mutate(text = str_replace_all(text, "\n", " ")) %>%
+   mutate(link = paste0("[klik](https://twitter.com/", screen_name, "/status/", status_id,")")) %>%
+   select(trend, tweet=text, author=screen_name, RTs=retweet_count, FAVs=favorite_count, link) %>%
+   knitr::kable()
+```
+
+# Najpopularniejsze twitty per trend (FAVs)
+
+```{r top_twitts_fav, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets_an %>%
+   mutate(trend = str_replace_all(trend, "#", "")) %>%
+   group_by(trend) %>%
+   filter(favorite_count == max(favorite_count)) %>%
+   arrange(desc(favorite_count)) %>%
+   ungroup() %>%
+   select(trend, text, screen_name, retweet_count, favorite_count, status_id) %>%
+   mutate(text = str_replace_all(text, "\n", " ")) %>%
+   mutate(link = paste0("[klik](https://twitter.com/", screen_name, "/status/", status_id,")")) %>%
+   select(trend, tweet=text, author=screen_name, RTs=retweet_count, FAVs=favorite_count, link) %>%
+   knitr::kable()
+```
+
+```{r word_cloud, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+# chmurki tagów
+words <- tweets_an %>%
+   # bez linków
+   mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "", text)) %>%
+   unnest_tokens(word, text, token="words") %>%
+   count(word, trend) %>%
+   ungroup() %>%
+   # usuniecie z chmurki slowa - trendu (oczywiscie ono dominuje)
+   filter(word != str_to_lower(str_replace_all(trend, "#", ""))) %>%
+   # bez stop words
+   filter(!word %in% pl_stop_words) %>%
+	filter(!word %in% stop_words$word)
+```
+
+# Najpopularniejsze słowa według trendów
+
+```{r word_cloud_pics, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE, results='asis'}
+trends <- unique(words$trend)
+
+for(i in 1:length(trends)) {
+   tmp <- filter(words, trend == trends[i])
+
+   cat(paste0("\n## ", str_replace_all(trends[i], "#", ""), "\n\n"))
+
+   wordcloud(tmp$word, tmp$n,
+             scale = c(2, 0.5),
+             min.freq = mean(tmp$n)+sd(tmp$n),
+             colors = RColorBrewer::brewer.pal(12, "Paired"))
+
+   cat("\n")
+}
+```
+```{r bigrams, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+# bi-grams
+biwords <- tweets_an %>%
+   # bez linków
+   mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "", text)) %>%
+   unnest_tokens(word, text, token="ngrams", n=2) %>%
+   count(word, trend) %>%
+   ungroup() %>%
+   separate(word, c("text1", "text2", sep = " ")) %>%
+   # bez stop words
+   filter(!text1 %in% pl_stop_words) %>%
+   filter(!text2 %in% pl_stop_words) %>%
+   mutate(word = paste(text1, text2))
+```
+
+# Najpopularniejsze bi-gramy
+
+```{r bigrams_table, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE, results='asis'}
+
+for(i in 1:length(trends)) {
+   cat(paste0("\n## ", str_replace_all(trends[i], "#", "")))
+
+   biwords %>%
+      filter(trend == trends[i]) %>%
+      top_n(5, wt = n) %>%
+      filter(n > min(n)) %>%
+      arrange(desc(n)) %>%
+      select(word, n) %>%
+      knitr::kable() %>%
+      print()
+
+   cat("\n")
+}
+```

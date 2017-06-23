@@ -1,0 +1,127 @@
+---
+output: 
+  html_document: 
+    self_contained: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+---
+```{r setup, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+setwd("~/RProjects/TwitterTrends/")
+
+library(tidyverse)
+library(lubridate)
+library(tidytext)
+library(wordcloud)
+library(stringr)
+
+pl_stop_words <- read_lines("polish_stopwords.txt")
+
+theme_set(theme_minimal())
+```
+
+```{r load_saved_data, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+tweets <- readRDS("tweets.Rds")
+```
+
+```{r filter_data, echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+# potrzebne kolumny
+tweets_an <- tweets %>%
+   select(screen_name, user_id, created_at, text, trend, trend_n,
+          retweet_count, favorite_count, status_id, source) %>%
+   distinct() %>%
+   mutate(created_at = with_tz(created_at, tzone = "Europe/Warsaw")) %>%
+   mutate(created_at = make_datetime(year(created_at),
+   											 month(created_at),
+   											 day(created_at),
+                                     hour(created_at),
+   											 minute(created_at), 0))
+
+
+# wyfiltrowanie zbędnych twittów
+tweets_an <- tweets_an %>%
+   # boty i spamerzy
+   filter(!source %in% c("Poland Trends")) %>%
+   # tylko ostatnie 12 godzin
+   filter(created_at >= Sys.time() - hours(12)) 
+
+
+trends <- tweets_an %>%
+  select(trend, trend_n) %>%
+  distinct() %>%
+  arrange(trend_n) %>%
+  select(trend) %>%
+  pull()
+```
+
+Aktualizacja: *`r format(max(tweets_an$created_at), "%Y-%m-%d, %H:%M")`*
+
+
+```{r word_cloud, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+# chmurki słów
+words <- tweets_an %>%
+   # bez linków
+   mutate(text = gsub(" ?(f|ht)tp(s?)://(.*)[.][a-z]+", "", text)) %>%
+   unnest_tokens(word, text, token="words") %>%
+   count(word, trend) %>%
+   ungroup() %>%
+   # usuniecie z chmurki slowa - trendu (oczywiscie ono dominuje)
+   filter(word != str_to_lower(str_replace_all(trend, "#", ""))) %>%
+   # bez stop words
+   filter(!word %in% pl_stop_words) %>%
+	filter(!word %in% stop_words$word)
+```
+
+```{r word_cloud_pics, message=FALSE, error=FALSE, warning=FALSE, echo=FALSE, results='asis'}
+for(i in 1:length(trends)) {
+   # nagłówek - co to za tag?
+   cat(paste0("\n# ", trends[i], "\n\n"))
+
+   # zbiór twittów z tagu
+   tweets_an_trend <- tweets_an %>% filter(trend == trends[i]) 
+
+   # liczba twittów w czasie
+   p <- tweets_an_trend %>%
+      count(created_at) %>%
+      ungroup() %>%
+      ggplot() +
+      geom_point(aes(created_at, n), color="darkgreen", alpha = 0.3, size = 3) +
+      expand_limits(y = 0) + labs(x="Czas", y="Liczba twittów")
+   
+   print(p)
+
+   cat("\n")
+
+
+   # chmurka słów
+   tmp <- filter(words, trend == trends[i])
+   wordcloud(tmp$word, tmp$n,
+#             scale = c(2, 0.5),
+             min.freq = mean(tmp$n)+sd(tmp$n),
+             colors = RColorBrewer::brewer.pal(12, "Paired"))
+
+   cat("\n")
+   
+   # najpopularniejsze twitty
+   tweets_an_trend %>%
+      select(screen_name, text, status_id, created_at,
+             retweet_count, favorite_count) %>%
+      mutate(text = gsub("\n", " ", text)) %>%
+      mutate(score = retweet_count + favorite_count) %>%
+      top_n(10, wt = score) %>%
+      arrange(desc(score), desc(created_at)) %>%
+      mutate(link = paste0("[",
+                           format(created_at, "%Y-%m-%d @ %H:%M"),
+                           "](https://twitter.com/",
+                           screen_name,
+                           "/status/",
+                           status_id,")")) %>%
+      select(Twitt=text, Czas=link, Autor=screen_name,
+             RTs=retweet_count, FAVs=favorite_count) %>%
+      knitr::kable() %>%
+      print()
+   
+   cat("\n")
+
+}
+```
