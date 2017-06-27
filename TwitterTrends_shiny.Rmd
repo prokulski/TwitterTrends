@@ -72,6 +72,11 @@ words <- tweets_an %>%
 Column {.sidebar data-width=200}
 -----------------------------------------------------------------------
 
+Aktualizacja:
+
+**`r format(max(with_tz(tweets_an$created_at, "Europe/Warsaw")), "%Y-%m-%d, %H:%M")`**
+
+
 ```{r}
 radioButtons("trend_input",
             label = "Trend:",
@@ -79,8 +84,6 @@ radioButtons("trend_input",
             selected = trends[1])
 
 ```
-
-Aktualizacja: `r format(max(with_tz(tweets_an$created_at, "Europe/Warsaw")), "%Y-%m-%d, %H:%M")`
 
 Autor: [Łukasz Prokulski](http://prokulski.net/?utm_source=shiny&utm_medium=shiny_twitter)
 
@@ -90,7 +93,7 @@ Kilka słów o tym [jak to działa](http://prokulski.net/index.php/2017/06/20/ma
 Column {data-width=300}
 -----------------------------------------------------------------------
 
-### Chmura słów
+### Najczęściej używane słowa
 
 ```{r}
 renderPlot({
@@ -104,7 +107,7 @@ renderPlot({
 ```
 
 
-### Czas
+### Liczba twittów w czasie
 
 ```{r}
 renderPlot({
@@ -124,7 +127,7 @@ renderPlot({
 Column {data-width=500}
 -----------------------------------------------------------------------
 
-### Twitty
+### Najbardziej popularne twitty:
 
 ```{r}
 renderTable({
